@@ -289,7 +289,16 @@ except KeyError as e:
     ```
     """)
     st.stop()
-
+# Temporary debug - remove after testing
+try:
+    google_key = st.secrets["google_places_api_key"]
+    serpapi_key = st.secrets["serpapi_api_key"]
+    
+    st.write("✅ Credentials loaded successfully!")
+    st.write(f"Google Key starts with: {google_key[:20]}...")
+    st.write(f"SerpAPI Key starts with: {serpapi_key[:20]}...")
+except Exception as e:
+    st.error(f"❌ Error loading credentials: {e}")
 # Main interface
 col1, col2, col3 = st.columns(3)
 
