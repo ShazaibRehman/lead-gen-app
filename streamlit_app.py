@@ -139,14 +139,16 @@ def make_excel(df_b, df_e):
     return out
 
 try:
-    with open("/sessions/loving-focused-ride/mnt/lead-gen-plugin/config/credentials.json") as f:
-        c = json.load(f)
-        KEY_G = c["google_places_api_key"]
-        KEY_S = c["serpapi_api_key"]
-except:
-    st.error("❌ API credentials not configured")
+    KEY_G = st.secrets["google_places_api_key"]
+    KEY_S = st.secrets["serpapi_api_key"]
+except KeyError:
+    st.error("❌ API credentials not found in Streamlit Secrets")
+    st.info("📋 Go to Streamlit Cloud → Your app → Settings → Secrets and add:")
+    st.code("""
+google_places_api_key = "AIzaSyDFlXuJkUrJx0VQimAeeT97XwMhY8JAaaE"
+serpapi_api_key = "86d7611861dd6e4f1419eb19c719300fe3a1f8632802ea26be4757b0a5de3e85"
+    """)
     st.stop()
-
 col1, col2 = st.columns([3,1])
 with col1: st.title("🎯 Lead Generation Platform")
 st.markdown("**Discover and reach decision-makers at your target companies**")
