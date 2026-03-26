@@ -299,6 +299,17 @@ try:
     st.write(f"SerpAPI Key starts with: {serpapi_key[:20]}...")
 except Exception as e:
     st.error(f"❌ Error loading credentials: {e}")
+# Debug API test
+test_response = requests.post(
+    "https://places.googleapis.com/v1/places:searchText",
+    json={"textQuery": "hospital in Florida"},
+    headers={"Content-Type": "application/json", "X-Goog-Api-Key": google_key},
+    timeout=20
+)
+
+st.write(f"API Response Status: {test_response.status_code}")
+st.write(f"Response: {test_response.text[:500]}")
+
 # Main interface
 col1, col2, col3 = st.columns(3)
 
