@@ -45,7 +45,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">🎯 Lead Generation Tool</div>', unsafe_allow_html=True)
-st.markdown('<div class="subheader">Find businesses and their executives with ease</div>', unsafe_allow_html=True)
+st.markdown('<div class="subheader">Find businesses and their executives</div>', unsafe_allow_html=True)
 
 class LeadGeneratorAPI:
     def __init__(self, google_key, serpapi_key):
@@ -57,7 +57,6 @@ class LeadGeneratorAPI:
         businesses = []
 
         try:
-            # CRITICAL: Include X-Goog-FieldMask header with proper field names
             headers = {
                 "Content-Type": "application/json",
                 "X-Goog-Api-Key": self.google_key,
@@ -76,72 +75,75 @@ class LeadGeneratorAPI:
             if response.status_code == 200:
                 data = response.json()
                 for place in data.get("places", [])[:max_results]:
-                    # Extract displayName safely
                     display_name = place.get("displayName", {})
                     if isinstance(display_name, dict):
                         name = display_name.get("text", "N/A")
                     else:
                         name = str(display_name)
 
+                    about = "N/A"
+                    summary = place.get("editorialSummary", {})
+                    if isinstance(summary, dict):
+                        about = summary.get("text", "N/A")
+
                     business = {
                         "Business Name": name,
                         "Address": place.get("formattedAddress", "N/A"),
                         "Phone": place.get("internationalPhoneNumber", "N/A"),
                         "Website": place.get("websiteUri", "N/A"),
-                        "About": place.get("editorialSummary", {}).get("text", "N/A") if isinstance(place.get("editorialSummary"), dict) else "N/A"
+                        "About": about[:300] if about != "N/A" else "N/A"
                     }
                     businesses.append(business)
                 
                 return businesses
             else:
-                error_data = response.json()
-                error_msg = error_data.get("error", {}).get("message", response.text)
-                st.error(f"❌ Google Places API Error: {error_msg}")
+                st.error(f"Google Places API error: {response.status_code}")
                 return []
 
         except Exception as e:
             logger.error(f"Google Places error: {str(e)}")
-            st.error(f"⚠️ Error searching Google Places: {str(e)}")
+            st.error(f"⚠️ Error searching businesses: {str(e)}")
             return []
 
     def search_linkedin_executive(self, company_name):
-        """Search for executives on LinkedIn via SerpAPI with multiple strategies"""
+        """Search for executives on LinkedIn"""
         search_strategies = [
-            f"{company_name} CEO linkedin",
-            f"{company_name} founder linkedin",
-            f"{company_name} director linkedin",
-            f"site:linkedin.com {company_name} CEO",
-            f"site:linkedin.com {company_name} founder",
-            f"site:linkedin.com/in {company_name}",
-            f"{company_name} executive linkedin",
+            f'"{company_name}" CEO site:linkedin.com/in',
+            f'"{company_name}" founder site:linkedin.com/in',
+            f'"{company_name}" director site:linkedin.com/in',
+            f'"{company_name}" CEO linkedin',
+            f'"{company_name}" founder linkedin',
+            f"{company_name} CEO",
+            f"{company_name} founder",
         ]
 
         for query in search_strategies:
-            for attempt in range(2):
-                try:
-                    params = {
-                        "q": query,
-                        "engine": "google",
-                        "api_key": self.serpapi_key,
-                        "num": 10
-                    }
+            try:
+                params = {
+                    "q": query,
+                    "engine": "google",
+                    "api_key": self.serpapi_key,
+                    "num": 10,
+                    "google_domain": "google.com"
+                }
 
-                    response = requests.get(
-                        "https://api.serpapi.com/search",
-                        params=params,
-                        timeout=20
-                    )
+                response = requests.get(
+                    "https://api.serpapi.com/search",
+                    params=params,
+                    timeout=20
+                )
 
-                    if response.status_code == 200:
-                        data = response.json()
+                if response.status_code == 200:
+                    data = response.json()
 
-                        # Check organic results
-                        for result in data.get("organic_results", []):
-                            link = result.get("link", "").lower()
-                            title = result.get("title", "")
+                    # Try organic results first
+                    for result in data.get("organic_results", []):
+                        link = result.get("link", "").lower()
+                        title = result.get("title", "")
 
-                            if "linkedin.com" in link and ("/in/" in link or "/company/" in link):
-                                name = title.split("|")[0].strip() if "|" in title else title
+                        if "linkedin.com/in" in link:
+                            name = title.split("|")[0].strip() if "|" in title else title
+                            if name and len(name) > 2:
                                 return {
                                     "Executive Name": name[:80],
                                     "Role": "Professional",
@@ -149,25 +151,23 @@ class LeadGeneratorAPI:
                                     "About": result.get("snippet", "")[:300]
                                 }
 
-                        # Check people results
-                        for person in data.get("people_results", []):
-                            name = person.get("name", "")
-                            link = person.get("link", "")
-                            if name and link and "linkedin" in link.lower():
-                                return {
-                                    "Executive Name": name[:80],
-                                    "Role": person.get("title", "Professional"),
-                                    "LinkedIn Profile": link,
-                                    "About": person.get("snippet", "")[:300]
-                                }
+                    # Try people results
+                    for person in data.get("people_results", []):
+                        name = person.get("name", "")
+                        link = person.get("link", "")
+                        if name and link and "linkedin" in link.lower():
+                            return {
+                                "Executive Name": name[:80],
+                                "Role": person.get("title", "Professional"),
+                                "LinkedIn Profile": link,
+                                "About": person.get("snippet", "")[:300]
+                            }
 
-                    if attempt == 0:
-                        time.sleep(1.5)
+                time.sleep(2)
 
-                except Exception as e:
-                    logger.error(f"SerpAPI error for query '{query}': {str(e)}")
-                    if attempt == 0:
-                        time.sleep(1.5)
+            except Exception as e:
+                logger.error(f"SerpAPI error: {str(e)}")
+                time.sleep(1)
 
         return {
             "Executive Name": "Not Found",
@@ -177,19 +177,19 @@ class LeadGeneratorAPI:
         }
 
     def generate_leads(self, business_type, location, num_results=20):
-        """Generate complete lead list with businesses and executives"""
+        """Generate complete lead list"""
         query = f"{business_type} in {location}"
 
-        st.info(f"🔍 Searching for {num_results} businesses matching '{query}'...")
+        st.info(f"🔍 Searching for {num_results} businesses...")
         businesses = self.search_google_places(query, num_results)
 
         if not businesses:
-            st.error(f"❌ No businesses found for '{query}'")
+            st.error(f"❌ No businesses found")
             return None, None
 
         st.success(f"✅ Found {len(businesses)} businesses!")
 
-        st.info("🔎 Searching for executives at these companies...")
+        st.info("🔎 Searching for executives...")
         progress_bar = st.progress(0)
 
         executives = []
@@ -201,19 +201,18 @@ class LeadGeneratorAPI:
             progress_bar.progress((idx + 1) / len(businesses))
             time.sleep(1)
 
-        st.success(f"✅ Completed executive search!")
-
+        st.success(f"✅ Complete!")
         return businesses, executives
 
 
 def create_professional_excel(businesses_df, executives_df):
-    """Create a professionally formatted Excel workbook with two sheets"""
+    """Create Excel with two sheets"""
     wb = Workbook()
 
     if 'Sheet' in wb.sheetnames:
         wb.remove(wb['Sheet'])
 
-    # Business Leads sheet
+    # Business sheet
     ws_business = wb.create_sheet("Business Leads")
     headers_business = ["Business Name", "Website", "Phone", "Address", "About"]
     ws_business.append(headers_business)
@@ -227,9 +226,9 @@ def create_professional_excel(businesses_df, executives_df):
             row.get("About", "")
         ])
 
-    # Executive Leads sheet
+    # Executive sheet
     ws_exec = wb.create_sheet("Executive Leads")
-    headers_exec = ["Person Name", "Target Company Name", "Role", "LinkedIn Profile", "About"]
+    headers_exec = ["Person Name", "Company Name", "Role", "LinkedIn Profile", "About"]
     ws_exec.append(headers_exec)
 
     for _, row in executives_df.iterrows():
@@ -241,7 +240,7 @@ def create_professional_excel(businesses_df, executives_df):
             row.get("About", "")
         ])
 
-    # Format both sheets
+    # Format
     for ws in [ws_business, ws_exec]:
         header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -252,23 +251,17 @@ def create_professional_excel(businesses_df, executives_df):
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
         light_gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                           top=Side(style='thin'), bottom=Side(style='thin'))
 
         for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), 2):
             for cell in row:
                 cell.border = thin_border
                 cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-
                 if row_idx % 2 == 0:
                     cell.fill = light_gray_fill
 
-        column_widths = {"A": 25, "B": 30, "C": 20, "D": 35, "E": 30}
-        for col, width in column_widths.items():
+        for col, width in [("A", 25), ("B", 30), ("C", 20), ("D", 35), ("E", 30)]:
             ws.column_dimensions[col].width = width
 
         ws.row_dimensions[1].height = 25
@@ -279,77 +272,58 @@ def create_professional_excel(businesses_df, executives_df):
     return output
 
 
-# Initialize session state
-if "api_initialized" not in st.session_state:
-    st.session_state.api_initialized = False
+# Initialize session
+if "businesses" not in st.session_state:
     st.session_state.businesses = None
     st.session_state.executives = None
 
-# Check for API credentials
+# Check credentials
 try:
     google_key = st.secrets["google_places_api_key"]
     serpapi_key = st.secrets["serpapi_api_key"]
     api = LeadGeneratorAPI(google_key, serpapi_key)
-    st.session_state.api_initialized = True
 except KeyError as e:
-    st.markdown('<div class="error-box">❌ API credentials not found in Streamlit Secrets</div>', unsafe_allow_html=True)
-    st.error(f"Missing credential: {str(e)}")
-    st.info("""
-    **To fix this:**
-    1. Go to your Streamlit Cloud app settings → Secrets
-    2. Add these lines in TOML format:
-    ```toml
-    google_places_api_key = "YOUR_GOOGLE_KEY"
-    serpapi_api_key = "YOUR_SERPAPI_KEY"
-    ```
-    """)
+    st.error(f"❌ Missing API key: {str(e)}")
     st.stop()
 
-# Main interface
+# UI
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    business_type = st.text_input("Business Type", placeholder="e.g., hospitals, recovery centers", value="")
+    business_type = st.text_input("Business Type", placeholder="e.g., hospitals, recovery centers")
 
 with col2:
-    location = st.text_input("Location", placeholder="e.g., Florida, Texas", value="")
+    location = st.text_input("Location", placeholder="e.g., Florida, Texas")
 
 with col3:
-    num_results = st.number_input("Number of Results", min_value=5, max_value=50, value=10, step=5)
+    num_results = st.number_input("Results", min_value=5, max_value=50, value=10)
 
-# Search button
 if st.button("🔍 Generate Leads", use_container_width=True):
-    if not business_type or not location:
-        st.error("Please enter both Business Type and Location")
+    if business_type and location:
+        businesses, executives = api.generate_leads(business_type, location, num_results)
+
+        if businesses and executives:
+            st.session_state.businesses = businesses
+            st.session_state.executives = executives
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Businesses", len(businesses))
+            with col2:
+                found = sum(1 for e in executives if e["Executive Name"] != "Not Found")
+                st.metric("Executives Found", found)
+
+            st.subheader("📍 Businesses")
+            st.dataframe(pd.DataFrame(businesses), use_container_width=True, hide_index=True)
+
+            st.subheader("👤 Executives")
+            st.dataframe(pd.DataFrame(executives), use_container_width=True, hide_index=True)
     else:
-        with st.spinner("Processing your request..."):
-            businesses, executives = api.generate_leads(business_type, location, num_results)
+        st.error("Enter business type and location")
 
-            if businesses and executives:
-                st.session_state.businesses = businesses
-                st.session_state.executives = executives
-
-                st.markdown("### 📊 Results Summary")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Businesses Found", len(businesses))
-                with col2:
-                    executives_found = sum(1 for e in executives if e["Executive Name"] != "Not Found")
-                    st.metric("Executives Found", executives_found)
-
-                st.subheader("📍 Business Leads")
-                business_df = pd.DataFrame(businesses)
-                st.dataframe(business_df, use_container_width=True, hide_index=True)
-
-                st.subheader("👤 Executive Leads")
-                exec_df = pd.DataFrame(executives)
-                st.dataframe(exec_df, use_container_width=True, hide_index=True)
-
-# Download section
+# Download
 if st.session_state.businesses and st.session_state.executives:
     st.markdown("---")
-    st.subheader("📥 Download Results")
-
     businesses_df = pd.DataFrame(st.session_state.businesses)
     executives_df = pd.DataFrame(st.session_state.executives)
 
@@ -357,11 +331,9 @@ if st.session_state.businesses and st.session_state.executives:
     filename = f"{business_type} {location} leads.xlsx".replace(" ", "_").lower()
 
     st.download_button(
-        label="📊 Download Excel File",
+        label="📊 Download Excel",
         data=excel_file,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
-
-    st.markdown('<div class="success-box">✅ Ready to download! Click the button above to get your lead list in Excel format.</div>', unsafe_allow_html=True)
