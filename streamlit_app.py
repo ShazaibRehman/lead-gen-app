@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Lead Generation Tool", layout="wide")
 
-# Custom CSS for professional styling
 st.markdown("""
 <style>
     .main-header {
@@ -45,7 +44,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# App title
 st.markdown('<div class="main-header">🎯 Lead Generation Tool</div>', unsafe_allow_html=True)
 st.markdown('<div class="subheader">Find businesses and their executives with ease</div>', unsafe_allow_html=True)
 
@@ -59,12 +57,18 @@ class LeadGeneratorAPI:
         businesses = []
 
         try:
-            url = "https://places.googleapis.com/v1/places:searchText"
-            headers = {"Content-Type": "application/json", "X-Goog-Api-Key": self.google_key}
+            # CRITICAL: Include X-Goog-FieldMask header with proper field names
+            headers = {
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": self.google_key,
+                "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.websiteUri,places.internationalPhoneNumber,places.editorialSummary"
+            }
+
+            payload = {"textQuery": query}
 
             response = requests.post(
-                url,
-                json={"textQuery": query},
+                "https://places.googleapis.com/v1/places:searchText",
+                json=payload,
                 headers=headers,
                 timeout=20
             )
@@ -72,20 +76,33 @@ class LeadGeneratorAPI:
             if response.status_code == 200:
                 data = response.json()
                 for place in data.get("places", [])[:max_results]:
+                    # Extract displayName safely
+                    display_name = place.get("displayName", {})
+                    if isinstance(display_name, dict):
+                        name = display_name.get("text", "N/A")
+                    else:
+                        name = str(display_name)
+
                     business = {
-                        "Business Name": place.get("displayName", {}).get("text", "N/A"),
+                        "Business Name": name,
                         "Address": place.get("formattedAddress", "N/A"),
                         "Phone": place.get("internationalPhoneNumber", "N/A"),
                         "Website": place.get("websiteUri", "N/A"),
-                        "About": place.get("editorialSummary", {}).get("text", "")[:300] if place.get("editorialSummary") else "N/A"
+                        "About": place.get("editorialSummary", {}).get("text", "N/A") if isinstance(place.get("editorialSummary"), dict) else "N/A"
                     }
                     businesses.append(business)
+                
+                return businesses
+            else:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", response.text)
+                st.error(f"❌ Google Places API Error: {error_msg}")
+                return []
 
         except Exception as e:
             logger.error(f"Google Places error: {str(e)}")
-            st.warning(f"⚠️ Error searching Google Places: {str(e)}")
-
-        return businesses
+            st.error(f"⚠️ Error searching Google Places: {str(e)}")
+            return []
 
     def search_linkedin_executive(self, company_name):
         """Search for executives on LinkedIn via SerpAPI with multiple strategies"""
@@ -163,7 +180,6 @@ class LeadGeneratorAPI:
         """Generate complete lead list with businesses and executives"""
         query = f"{business_type} in {location}"
 
-        # Search for businesses
         st.info(f"🔍 Searching for {num_results} businesses matching '{query}'...")
         businesses = self.search_google_places(query, num_results)
 
@@ -173,7 +189,6 @@ class LeadGeneratorAPI:
 
         st.success(f"✅ Found {len(businesses)} businesses!")
 
-        # Search for executives
         st.info("🔎 Searching for executives at these companies...")
         progress_bar = st.progress(0)
 
@@ -289,35 +304,15 @@ except KeyError as e:
     ```
     """)
     st.stop()
-# Temporary debug - remove after testing
-try:
-    google_key = st.secrets["google_places_api_key"]
-    serpapi_key = st.secrets["serpapi_api_key"]
-    
-    st.write("✅ Credentials loaded successfully!")
-    st.write(f"Google Key starts with: {google_key[:20]}...")
-    st.write(f"SerpAPI Key starts with: {serpapi_key[:20]}...")
-except Exception as e:
-    st.error(f"❌ Error loading credentials: {e}")
-# Debug API test
-test_response = requests.post(
-    "https://places.googleapis.com/v1/places:searchText",
-    json={"textQuery": "hospital in Florida"},
-    headers={"Content-Type": "application/json", "X-Goog-Api-Key": google_key},
-    timeout=20
-)
-
-st.write(f"API Response Status: {test_response.status_code}")
-st.write(f"Response: {test_response.text[:500]}")
 
 # Main interface
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    business_type = st.text_input("Business Type", placeholder="e.g., mental health recovery centers", value="")
+    business_type = st.text_input("Business Type", placeholder="e.g., hospitals, recovery centers", value="")
 
 with col2:
-    location = st.text_input("Location", placeholder="e.g., Texas, California", value="")
+    location = st.text_input("Location", placeholder="e.g., Florida, Texas", value="")
 
 with col3:
     num_results = st.number_input("Number of Results", min_value=5, max_value=50, value=10, step=5)
